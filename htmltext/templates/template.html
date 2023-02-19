@@ -1,0 +1,17 @@
+<h1>Root template value: {{.}}</h1>
+<h1>Name: {{ .Name }}, Category: {{ .Category }}, Price: 
+    {{- printf " $%.2f"  .Price -}}
+</h1>
+<h1>Tax: {{printf "$%.2f" .AddTax }}</h1>
+<h1>Discount Price: {{ .ApplyDiscount 10 | printf "$%.2f" }}</h1>
+
+{{ define "mainTemplate" -}}
+
+    {{$length := len . }}
+    <h1>There are {{ $length }} products in the source data.</h1>
+{{- range getCats . }}
+    {{ lower .}}
+    {{ if ne ($char := slice (lower .) 0 1) "s"}}
+    <h1>{{$char}}: {{.}}</h1>
+    {{- end }}
+{{- end }}{{- end }}

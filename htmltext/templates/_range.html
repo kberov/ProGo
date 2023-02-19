@@ -1,0 +1,23 @@
+<h1>There are {{ len . }} products in the source data.</h1>
+<h1>First product: {{ index . 0 }}</h1>
+{{ range slice . 3 5 -}}
+<h1>Name: {{ .Name }}, Category: {{ .Category }}, Price: 
+    {{- printf " $%.2f"  .Price -}}
+</h1>
+{{ end }}
+
+{{ define "mainRange" -}}
+<h1>Range of products (the layoout header)</h1>
+{{ block "body" . }}
+<h2>There are {{ len . }} products in the source data.</h2>
+{{ end }}
+{{end -}}
+
+{{ define "currency" }}{{ printf "$%.2f" . }}{{ end }}
+{{ define "basicProduct" -}}
+Name: {{ .Name }}, Category: {{ .Category }}, Price,
+{{- template "currency" .Price }}
+{{- end -}}
+{{ define "expensiveProduct" -}}
+Expensive Product {{ .Name }} ({{ template "currency" .Price }})
+{{- end -}}

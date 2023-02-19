@@ -1,0 +1,12 @@
+{{define "body"}}
+{{ range . -}}
+    {{ if lt .Price 100.00 }}
+    <h1>{{ template "basicProduct" . }}</h1>
+    {{- else if gt .Price 1500.00 }}
+    <h1>{{template "expensiveProduct" .}}</h1>
+    {{- else }}
+    <h1>Midrange Product: {{ .Name }} ({{template "currency" .Price }})</h1>
+    {{- end -}}
+{{ end -}}
+{{ end -}}
+

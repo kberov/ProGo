@@ -1,0 +1,6 @@
+<h1>Root template value: {{.}}</h1>
+<h1>Name: {{ .Name }}, Category: {{ .Category }}, Price: 
+    {{- printf " $%.2f"  .Price -}}
+</h1>
+<h1>Tax: {{printf "$%.2f" .AddTax }}</h1>
+<h1>Discount Price: {{ .ApplyDiscount 10 | printf "$%.2f" }}</h1>
