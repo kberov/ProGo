@@ -193,13 +193,269 @@ func swap(first interface{}, second interface{}) {
 }
 
 func createPointerType(t reflect.Type) reflect.Type {
-    return reflect.PtrTo(t)
+	return reflect.PtrTo(t)
 }
+
 func followPointerType(t reflect.Type) reflect.Type {
-    if t.Kind() == reflect.Ptr {
-        return t.Elem()
-    }
-    return t
+	if t.Kind() == reflect.Ptr {
+		return t.Elem()
+	}
+	return t
+}
+
+var stringPtrType = reflect.TypeOf((*string)(nil))
+
+func transformString(val any) {
+	elemValue := reflect.ValueOf(val)
+	if elemValue.Type() == stringPtrType {
+		upperStr := strings.ToUpper(elemValue.Elem().String())
+		if elemValue.Elem().CanSet() {
+			elemValue.Elem().SetString(upperStr)
+		}
+	}
+}
+
+func checkElemType(val any, arrOrSlice any) bool {
+	elemType := reflect.TypeOf(val)
+	arrOrSliceType := reflect.TypeOf(arrOrSlice)
+	return (arrOrSliceType.Kind() == reflect.Array ||
+		arrOrSliceType.Kind() == reflect.Slice) &&
+		arrOrSliceType.Elem() == elemType
+}
+
+/*
+The setValue function changes the value of an element in a slice or array, but
+each kind of type has to be handled differently. Slices are the easiest to work
+with and can be passed as values, like this:
+...
+setValue(slice, 1, newCity)
+...
+As I explained in Chapter 7, slices are references and are not copied when they
+are used as function arguments. In Listing 28-6, the setValue method uses the
+Kind method to detect the slice, uses the Index (761 Chapter 28 ■ Using
+Reflection, Part 2) method to get the Value for the element at the specified
+location, and uses the Set method to change the value of the element. Arrays
+must be passed as pointers, like this:
+...
+setValue(&array, 1, newCity)
+...
+If you don’t use a pointer, then you won’t be able to set new values, and the
+CanSet method will return false. The Kind method is used to detect the pointer,
+and the Elem method is used to confirm it points to an array: ...
+*/
+func setValue(arrayOrSlice any, index int, replacement any) {
+	arrayOrSliceVal := reflect.ValueOf(arrayOrSlice)
+	replacementVal := reflect.ValueOf(replacement)
+	if arrayOrSliceVal.Kind() == reflect.Slice {
+		elemVal := arrayOrSliceVal.Index(index)
+		if elemVal.CanSet() {
+			elemVal.Set(replacementVal)
+		}
+	} else if arrayOrSliceVal.Kind() == reflect.Ptr &&
+		arrayOrSliceVal.Elem().Kind() == reflect.Array &&
+		arrayOrSliceVal.Elem().CanSet() {
+		arrayOrSliceVal.Elem().Index(index).Set(replacementVal)
+	}
+}
+
+func enumerateStrings(arrayOrSlice any) {
+	arrayOrSliceVal := reflect.ValueOf(arrayOrSlice)
+	// 762 Chapter 28 ■ Using Reflection, Part 2
+	if (arrayOrSliceVal.Kind() == reflect.Array ||
+		arrayOrSliceVal.Kind() == reflect.Slice) &&
+		arrayOrSliceVal.Type().Elem().Kind() == reflect.String {
+		for i := 0; i < arrayOrSliceVal.Len(); i++ {
+			Printfln("Element: %v, Value: %v", i, arrayOrSliceVal.Index(i).String())
+		}
+	}
+}
+
+func findAndSplit(slice interface{}, target interface{}) interface{} {
+	sliceVal := reflect.ValueOf(slice)
+	targetType := reflect.TypeOf(target)
+	if sliceVal.Kind() == reflect.Slice && sliceVal.Type().Elem() == targetType {
+		for i := 0; i < sliceVal.Len(); i++ {
+			if sliceVal.Index(i).Interface() == target {
+				return sliceVal.Slice(0, i+1)
+			}
+		}
+	}
+	return slice
+}
+
+// The pickValues function creates a new slice using the Type reflected from an
+// existing slice and uses the Append function to add values to the new slice.
+func pickValues(slice interface{}, indices ...int) interface{} {
+	sliceVal := reflect.ValueOf(slice)
+	if sliceVal.Kind() == reflect.Slice {
+		// 765 Chapter 28 ■ Using Reflection, Part 2
+		newSlice := reflect.MakeSlice(sliceVal.Type(), 0, 10)
+		for _, index := range indices {
+			newSlice = reflect.Append(newSlice, sliceVal.Index(index))
+		}
+		return newSlice
+	}
+	return nil
+}
+
+// The Kind method is used to confirm that the describeMap function has
+// received a map and the Key and Elem methods are used to write out the key
+// and value types.
+func describeMap(m interface{}) {
+	mapType := reflect.TypeOf(m)
+	/* The Kind method is used to confirm that the describeMap function has
+	* received a map and the Key and Elem methods are used to write out the key
+	* and value types. */
+	if mapType.Kind() == reflect.Map {
+		Printfln("Key type: %v, Val type: %v", mapType.Key(), mapType.Elem())
+	} else {
+		Printfln("Not a map")
+	}
+}
+
+/* The reflect package provides two different ways to enumerate the contents of
+* a map. The first is to use the MapKeys method to get a slice containing the
+* reflected key values and obtain each reflected map value using the MapIndex
+* method, as shown in Listing 28-11. */
+func printMapContents(m any) {
+	mapValue := reflect.ValueOf(m)
+	if mapValue.Kind() == reflect.Map {
+		for _, keyVal := range mapValue.MapKeys() {
+			reflectedVal := mapValue.MapIndex(keyVal)
+			Printfln("Map Key: %v, Value: %v", keyVal, reflectedVal)
+		}
+	} else {
+		Printfln("Not a map")
+	}
+}
+
+/*
+	The same effect can be achieved using the MapRange method, which returns a
+
+* pointer to a MapIter value, which defines the methods described in Table
+* 28-11.
+The MapIter struct provides a cursor-based approach to enumerating maps, where
+the Next method advances through the map contents, and the Key and Value
+methods provide access to the key and value at the current position. The result
+of the Next method indicates whether there are remaining values to be read,
+which makes it convenient to use with a for loop, as shown in Listing 28-12.
+*/
+func printMapContentsWithMapRange(m any) {
+	mapValue := reflect.ValueOf(m)
+	if mapValue.Kind() == reflect.Map {
+		iter := mapValue.MapRange()
+		for iter.Next() {
+			/* It is important to call the Next method before calling the Key
+			* and Value methods and to avoid calling those methods when the
+			* Next method returns false */
+			Printfln("Map Key: %v, Value: %v", iter.Key(), iter.Value())
+		}
+	} else {
+		Printfln("Not a map")
+	}
+}
+
+/* The SetMapIndex method is used to add, modify, or remove key-value pairs in
+* a map. Listing 28-13 defines functions for modifying a map. */
+func setMap(m interface{}, key interface{}, val interface{}) {
+	mapValue := reflect.ValueOf(m)
+	keyValue := reflect.ValueOf(key)
+	valValue := reflect.ValueOf(val)
+	if mapValue.Kind() == reflect.Map &&
+		mapValue.Type().Key() == keyValue.Type() &&
+		mapValue.Type().Elem() == valValue.Type() {
+		mapValue.SetMapIndex(keyValue, valValue)
+	} else {
+		Printfln("Not a map or mismatched types")
+	}
+}
+
+func createMap(slice any, op func(any) any) any {
+	sliceVal := reflect.ValueOf(slice)
+	if sliceVal.Kind() == reflect.Slice {
+		mapType := reflect.MapOf(sliceVal.Type().Elem(), sliceVal.Type().Elem())
+		mapVal := reflect.MakeMap(mapType)
+		for i := 0; i < sliceVal.Len(); i++ {
+			elemVal := sliceVal.Index(i)
+			mapVal.SetMapIndex(elemVal, reflect.ValueOf(op(elemVal.Interface())))
+		}
+		return mapVal.Interface()
+	}
+	return nil
+}
+
+func removeFromMap(m interface{}, key interface{}) {
+	mapValue := reflect.ValueOf(m)
+	keyValue := reflect.ValueOf(key)
+	if mapValue.Kind() == reflect.Map &&
+		mapValue.Type().Key() == keyValue.Type() {
+		// This is a handy trick that ensures that the (float64) value is
+		// removed from the map.
+		mapValue.SetMapIndex(keyValue, reflect.Value{})
+	}
+}
+
+func inspectStructs(structs ...interface{}) {
+	for _, s := range structs {
+		structType := reflect.TypeOf(s)
+		if structType.Kind() == reflect.Struct {
+			inspectStructType([]int{}, structType)
+		}
+	}
+}
+
+func inspectStructType(baseIndex []int, structType reflect.Type) {
+	Printfln("--- Struct Type: %v", structType)
+	for i := 0; i < structType.NumField(); i++ {
+		fieldIndex := append(baseIndex, i)
+		field := structType.Field(i)
+		Printfln("Field %v: Name: %v, Type: %v, Exported: %v",
+			fieldIndex, field.Name, field.Type, field.PkgPath == "")
+		if field.Type.Kind() == reflect.Struct {
+			field := structType.FieldByIndex(fieldIndex)
+			inspectStructType(fieldIndex, field.Type)
+		}
+	}
+	Printfln("--- End Struct Type: %v", structType)
+}
+
+func describeField(s interface{}, fieldName string) {
+	structType := reflect.TypeOf(s)
+	field, found := structType.FieldByName(fieldName)
+	if found {
+		Printfln("Found: %v, Type: %v, Index: %v",
+			field.Name, field.Type, field.Index)
+		index := field.Index
+		for len(index) > 1 {
+			index = index[0 : len(index)-1]
+			field = structType.FieldByIndex(index)
+			Printfln("Parent : %v, Type: %v, Index: %v",
+				field.Name, field.Type, field.Index)
+		}
+		Printfln("Top-Level Type: %v", structType)
+	} else {
+		Printfln("Field %v not found", fieldName)
+	}
+}
+
+func inspectTags(s interface{}, tagName string) {
+	structType := reflect.TypeOf(s)
+	for i := 0; i < structType.NumField(); i++ {
+		field := structType.Field(i)
+		tag := field.Tag
+		valGet := tag.Get(tagName)
+		valLookup, ok := tag.Lookup(tagName)
+		Printfln("Field: %v, Tag %v: %v", field.Name, tagName, valGet)
+		Printfln("Field: %v, Tag %v: %v, Set: %v",
+			field.Name, tagName, valLookup, ok)
+	}
+}
+
+type Person struct {
+	// 778 Chapter 28 ■ Using Reflection, Part 2
+	Name    string `alias:"id"`
+	City    string `alias:""`
+	Country string
 }
 
 func main() {
@@ -288,4 +544,110 @@ func main() {
 	for _, val := range []interface{}{name, price, city} {
 		Printfln("Value: %v", val)
 	}
+
+	Printfln("%s%s%s%s",
+		"\n---------\n",
+		"Using Reflection, Part 2",
+		"\n Preparing for This Chapter",
+		"\n Working with Pointers")
+	Printfln("")
+
+	name = "Alice"
+	t := reflect.TypeOf(name)
+	Printfln("Original Type: %v for value %v", t, name)
+	pt := createPointerType(t)
+	Printfln("Pointer Type: %v", pt)
+	Printfln("Follow pointer type: %v", followPointerType(pt))
+
+	transformString(&name)
+	Printfln("Follow pointer value: %v", name)
+
+	Printfln("\n Working with Array and Slice Types")
+
+	name = "Alice"
+	city = "London"
+	hobby := "Running"
+
+	sliceOfStr := []string{name, city, hobby}
+	array := [3]string{name, city, hobby}
+	Printfln("Slice (string): %v", checkElemType("testString", sliceOfStr))
+	Printfln("Array (string): %v", checkElemType("testString", array))
+	Printfln("Array (int): %v", checkElemType(10, array))
+	Printfln("Array (string): %v", checkElemType("10", array))
+
+	Printfln("\n Working with Array and Slice Values")
+
+	Printfln("Original slice: %v", sliceOfStr)
+	newCity := "Paris"
+	setValue(sliceOfStr, 1, newCity)
+	Printfln("Modified slice: %v", sliceOfStr)
+	Printfln("Original slice: %v", array)
+	newCity = "Rome"
+	setValue(&array, 1, newCity)
+	Printfln("Modified slice: %v", array)
+
+	Printfln("\n  Enumerating Slices and Arrays")
+	/* The Len method can be used to set the limit in a for loop to enumerate
+	* the elements in an array or slice, as shown in Listing 28-7. */
+	enumerateStrings(sliceOfStr)
+	enumerateStrings(array)
+
+	Printfln("\n  Creating New Slices from Existing Slices")
+
+	Printfln("Strings: %v", findAndSplit(sliceOfStr, "Paris"))
+	numbers := []int{1, 3, 4, 5, 7}
+	Printfln("Numbers: %v", findAndSplit(numbers, 4))
+
+	Printfln("\n  Creating, Copying, and Appending Elements to Slices")
+	sliceOfStr = append(sliceOfStr, "Bob", "Paris", "Soccer")
+	Printfln("sliceOfStr: %v", sliceOfStr)
+	picked := pickValues(sliceOfStr, 0, 3, 5)
+	Printfln("Picked values: %v", picked)
+
+	Printfln("\n Working with Map Types")
+	pricesMap := map[string]float64{
+		"Kayak": 279, "Lifejacket": 48.95, "Soccer Ball": 19.50,
+	}
+	describeMap(pricesMap)
+
+	Printfln("\n Working with Map Values")
+	printMapContents(pricesMap)
+	printMapContentsWithMapRange(pricesMap)
+
+	Printfln("\n  Setting and Removing Map Values")
+	/* As noted in Chapter 7, maps are not copied when they are used as
+	* arguments and so a pointer isn’t required to modify the contents of a
+	* map. */
+	setMap(pricesMap, "Kayak", 100.00)
+	setMap(pricesMap, "Hat", 10.00)
+	removeFromMap(pricesMap, "Lifejacket")
+	for k, v := range pricesMap {
+		// 770 Chapter 28 ■ Using Reflection, Part 2
+		Printfln("Key: %v, Value: %v", k, v)
+	}
+
+	Printfln("\n  Creating New Maps")
+	names = []string{"Alice", "Bob", "Charlie"}
+	reverse := func(val any) any {
+		if str, ok := val.(string); ok {
+			return strings.ToUpper(str)
+		}
+		return val
+	}
+	namesMap := createMap(names, reverse).(map[string]string)
+	for k, v := range namesMap {
+		Printfln("Key: %v, Value:%v", k, v)
+	}
+
+	Printfln("%s%s", "\n Working with Struct Types", "\n  Processing Nested Fields")
+	inspectStructs(Purchase{})
+
+	Printfln("\n  Locating a Field by Name")
+
+	describeField(Purchase{}, "Price")
+	describeField(Product{}, "Name")
+	describeField(Purchase{}, "AlaBala")
+
+	Printfln("\n  Inspecting Struct Tags")
+	inspectTags(Person{}, "alias")
 }
