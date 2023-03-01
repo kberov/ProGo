@@ -458,6 +458,52 @@ type Person struct {
 	Country string
 }
 
+func getFieldValues(s any) {
+	structValue := reflect.ValueOf(s)
+	if structValue.Kind() == reflect.Struct {
+		for i := 0; i < structValue.NumField(); i++ {
+			fieldType := structValue.Type().Field(i)
+			fieldVal := structValue.Field(i)
+			Printfln("Name: %v, Type: %v, Value: %v",
+				fieldType.Name, fieldType.Type, fieldVal)
+		}
+	} else {
+		Printfln("Not a struct")
+	}
+}
+
+/*
+As with other data types, reflection can only be used to change values via a
+pointer to the struct. The Elem method is used to follow the pointer so that
+the Value that reflects the field can be obtained using one of the methods
+described in Table 28-17. The CanSet method is used to determine if a field can
+be set.  An additional step is required for fields that are not nested structs,
+which is to create a pointer to the field value using the Addr method
+*/
+func setFieldValue(s interface{}, newVals map[string]interface{}) {
+	structValue := reflect.ValueOf(s)
+	if structValue.Kind() == reflect.Ptr &&
+		structValue.Elem().Kind() == reflect.Struct {
+		for name, newValue := range newVals {
+			fieldVal := structValue.Elem().FieldByName(name)
+			if fieldVal.CanSet() {
+				fieldVal.Set(reflect.ValueOf(newValue))
+			} else if fieldVal.CanAddr() {
+				ptr := fieldVal.Addr()
+				if ptr.CanSet() {
+					ptr.Set(reflect.ValueOf(newValue))
+				} else {
+					Printfln("Cannot set field via pointer")
+				}
+			} else {
+				Printfln("Cannot set field")
+			}
+		}
+	} else {
+		panic("Not a pointer to a struct! Cannot change a struct value")
+	}
+}
+
 func main() {
 	product := Product{
 		Name: "Kayak", Category: "Watersports", Price: 279,
@@ -650,4 +696,33 @@ func main() {
 
 	Printfln("\n  Inspecting Struct Tags")
 	inspectTags(Person{}, "alias")
+
+	Printfln("\n  Creating Struct Types")
+
+	stringType := reflect.TypeOf("this is a string")
+	Printfln("The type of a created by reflect.TypeOf(\"\") as a string: %s", stringType)
+	structType := reflect.StructOf([]reflect.StructField{
+		{Name: "Name", Type: stringType, Tag: `alias:"id"`},
+		{Name: "City", Type: stringType, Tag: `alias:""`},
+		{Name: "Country", Type: stringType},
+	})
+	inspectTags(reflect.New(structType), "alias")
+
+	Printfln("\n Working with Struct Values")
+
+	purchase := Purchase{
+		Customer: Customer{Name: "Acme", City: "Chicago"},
+		Product:  Product{Name: "Kayak", Category: "Watersports", Price: 279},
+		Total:    279,
+		taxRate:  10,
+	}
+
+	setFieldValue(&purchase, map[string]any{
+		"City": "London", "Category": "Boats", "Total": 100.50,
+	})
+	getFieldValues(purchase)
+
+	// Using Reflection, Part 3
+	Printfln("\n\nUsing Reflection, Part 3\n")
+
 }
