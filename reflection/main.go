@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
 )
@@ -64,19 +65,19 @@ func printDetailsReflectValues(values ...any) {
 		elemValue := reflect.ValueOf(elem)
 		switch elemValue.Kind() {
 		case reflect.Bool:
-			var val bool = elemValue.Bool()
+			var val = elemValue.Bool()
 			Printfln("Bool: %v", val)
 		case reflect.Int:
-			var val int64 = elemValue.Int()
+			var val = elemValue.Int()
 			Printfln("Int: %v", val)
 		case reflect.Float32, reflect.Float64:
-			var val float64 = elemValue.Float()
+			var val = elemValue.Float()
 			Printfln("Float: %v", val)
 		case reflect.String:
-			var val string = elemValue.String()
+			var val = elemValue.String()
 			Printfln("String: %v", val)
 		case reflect.Ptr:
-			var val reflect.Value = elemValue.Elem()
+			var val = elemValue.Elem()
 			if val.Kind() == reflect.Int {
 				Printfln("Pointer to Int: %v", val.Int())
 			}
@@ -504,6 +505,237 @@ func setFieldValue(s interface{}, newVals map[string]interface{}) {
 	}
 }
 
+func inspectFuncType(f interface{}) {
+	funcType := reflect.TypeOf(f)
+	if funcType.Kind() == reflect.Func {
+		Printfln("Function parameters: %v", funcType.NumIn())
+		for i := 0; i < funcType.NumIn(); i++ {
+			paramType := funcType.In(i)
+			if i < funcType.NumIn()-1 {
+				Printfln("Parameter #%v, Type: %v", i, paramType)
+			} else {
+				Printfln("Parameter #%v, Type: %v, Variadic: %v", i, paramType,
+					funcType.IsVariadic())
+			}
+		}
+		Printfln("Function results: %v", funcType.NumOut())
+		for i := 0; i < funcType.NumOut(); i++ {
+			resultType := funcType.Out(i)
+			Printfln("Result #%v, Type: %v", i, resultType)
+		}
+	}
+}
+
+func invokeFunction(f interface{}, params ...interface{}) {
+	paramVals := []reflect.Value{}
+	for _, p := range params {
+		paramVals = append(paramVals, reflect.ValueOf(p))
+	}
+	funcVal := reflect.ValueOf(f)
+	if funcVal.Kind() == reflect.Func {
+		results := funcVal.Call(paramVals)
+		for i, r := range results {
+			//How to get the function name?
+			Printfln("Result of invoked function %v #%v: %v",
+				funcName(funcVal),
+				i, r)
+
+		}
+	}
+}
+
+func funcName(funcVal reflect.Value) string {
+	return runtime.FuncForPC(funcVal.Pointer()).Name()
+}
+
+func mapSlice(slice interface{}, mapper interface{}) (mapped []interface{}) {
+	sliceVal := reflect.ValueOf(slice)
+	mapperVal := reflect.ValueOf(mapper)
+	mapped = []interface{}{}
+	if sliceVal.Kind() == reflect.Slice && mapperVal.Kind() == reflect.Func {
+		paramTypes := []reflect.Type{sliceVal.Type().Elem()}
+		resultTypes := []reflect.Type{}
+		for i := 0; i < mapperVal.Type().NumOut(); i++ {
+			resultTypes = append(resultTypes, mapperVal.Type().Out(i))
+		}
+		// 791 Chapter 29 ■ Using Reflection, Part 3
+		expectedFuncType := reflect.FuncOf(paramTypes,
+			resultTypes, mapperVal.Type().IsVariadic())
+		if mapperVal.Type() == expectedFuncType {
+			for i := 0; i < sliceVal.Len(); i++ {
+				result := mapperVal.Call([]reflect.Value{sliceVal.Index(i)})
+				for _, r := range result {
+					mapped = append(mapped, r.Interface())
+				}
+			}
+		}
+	} else {
+		Printfln("Function type not as expected")
+	}
+	return
+}
+
+func makeMapperFunc(mapper interface{}) interface{} {
+	mapVal := reflect.ValueOf(mapper)
+	if mapVal.Kind() == reflect.Func && mapVal.Type().NumIn() == 1 &&
+		mapVal.Type().NumOut() == 1 {
+		inType := reflect.SliceOf(mapVal.Type().In(0))
+		inTypeSlice := []reflect.Type{inType}
+		// 792 Chapter 29 ■ Using Reflection, Part 3
+		outType := reflect.SliceOf(mapVal.Type().Out(0))
+		outTypeSlice := []reflect.Type{outType}
+		funcType := reflect.FuncOf(inTypeSlice, outTypeSlice, false)
+
+		funcVal := reflect.MakeFunc(funcType,
+			func(params []reflect.Value) (results []reflect.Value) {
+				srcSliceVal := params[0]
+				resultsSliceVal := reflect.MakeSlice(outType, srcSliceVal.Len(), 10)
+				for i := 0; i < srcSliceVal.Len(); i++ {
+					r := mapVal.Call([]reflect.Value{srcSliceVal.Index(i)})
+					resultsSliceVal.Index(i).Set(r[0])
+				}
+				results = []reflect.Value{resultsSliceVal}
+				return
+			})
+		return funcVal.Interface()
+	}
+	Printfln("Unexpected types")
+	return nil
+}
+
+func inspectMethods(s interface{}) {
+	sType := reflect.TypeOf(s)
+	if sType.Kind() == reflect.Struct || (sType.Kind() == reflect.Ptr &&
+		sType.Elem().Kind() == reflect.Struct) {
+		Printfln("Type: %v, Methods: %v", sType, sType.NumMethod())
+		for i := 0; i < sType.NumMethod(); i++ {
+			method := sType.Method(i)
+			Printfln("Method name: %v, Type: %v",
+				method.Name, method.Type)
+		}
+	}
+}
+
+func executeFirstVoidMethod(s interface{}) {
+	sVal := reflect.ValueOf(s)
+	for i := 0; i < sVal.NumMethod(); i++ {
+		method := sVal.Method(i)
+		if method.Type().NumIn() == 0 {
+			results := method.Call([]reflect.Value{})
+			Printfln("Type: %v, Method: %v, Results: %v",
+				sVal.Type(), sVal.Type().Method(i).Name, results)
+			break
+		} else {
+			Printfln("Skipping method %v %v",
+				sVal.Type().Method(i).Name, method.Type().NumIn())
+		}
+	}
+}
+
+func checkImplementation(check any, targets ...any) {
+	checkType := reflect.TypeOf(check)
+	if checkType.Kind() == reflect.Ptr &&
+		checkType.Elem().Kind() == reflect.Interface {
+		checkType := checkType.Elem()
+		for _, target := range targets {
+			targetType := reflect.TypeOf(target)
+			Printfln("Type %v implements %v: %v",
+				targetType, checkType, targetType.Implements(checkType))
+		}
+	}
+}
+
+/*
+	...there are occasions when the Elem method must
+
+be used to move from an interface to the type that implements it, as shown in
+Listing 29-14.
+*/
+type Wrapper struct {
+	NamedItem
+}
+
+func getUnderlying(item Wrapper, fieldName string) {
+
+	itemVal := reflect.ValueOf(item)
+	fieldVal := itemVal.FieldByName(fieldName)
+	Printfln("Field Type: %v", fieldVal.Type())
+	for i := 0; i < fieldVal.Type().NumMethod(); i++ {
+		method := fieldVal.Type().Method(i)
+		Printfln("Interface Method: %v, Exported: %v",
+			method.Name, method.PkgPath == "")
+	}
+	Printfln("--------")
+	if fieldVal.Kind() == reflect.Interface {
+		Printfln("Underlying Type: %v", fieldVal.Elem().Type())
+		for i := 0; i < fieldVal.Elem().Type().NumMethod(); i++ {
+			method := fieldVal.Elem().Type().Method(i)
+			Printfln("Underlying Method: %v", method.Name)
+		}
+	}
+}
+
+func inspectChannel(channel interface{}) {
+	channelType := reflect.TypeOf(channel)
+	if channelType.Kind() == reflect.Chan {
+		Printfln("Type %v, Direction: %v",
+			channelType.Elem(), channelType.ChanDir())
+	}
+}
+
+func sendOverChannel(channel any, data any) {
+	channelVal := reflect.ValueOf(channel)
+	dataVal := reflect.ValueOf(data)
+	if channelVal.Kind() == reflect.Chan &&
+		dataVal.Kind() == reflect.Slice &&
+		channelVal.Type().Elem() == dataVal.Type().Elem() {
+		for i := 0; i < dataVal.Len(); i++ {
+			val := dataVal.Index(i)
+			channelVal.Send(val)
+		}
+		channelVal.Close()
+	} else {
+		Printfln("Unexpected types: %v, %v", channelVal.Type(), dataVal.Type())
+	}
+}
+
+func createChannelAndSend(data interface{}) interface{} {
+	dataVal := reflect.ValueOf(data)
+	channelType := reflect.ChanOf(reflect.BothDir, dataVal.Type().Elem())
+	channel := reflect.MakeChan(channelType, 1)
+	go func() {
+		for i := 0; i < dataVal.Len(); i++ {
+			channel.Send(dataVal.Index(i))
+		}
+		channel.Close()
+	}()
+	return channel.Interface()
+}
+
+func readChannels(channels ...interface{}) {
+	channelsVal := reflect.ValueOf(channels)
+	cases := []reflect.SelectCase{}
+	for i := 0; i < channelsVal.Len(); i++ {
+		cases = append(cases, reflect.SelectCase{
+			Chan: channelsVal.Index(i).Elem(),
+			Dir:  reflect.SelectRecv,
+		})
+	}
+	// 808 Chapter 29 ■ Using Reflection, Part 3
+	for {
+		caseIndex, val, ok := reflect.Select(cases)
+		if ok {
+			Printfln("Value read: %v, Type: %v", val, val.Type())
+		} else {
+			if len(cases) == 1 {
+				Printfln("All channels closed.")
+				return
+			}
+			cases = append(cases[:caseIndex], cases[caseIndex+1:]...)
+		}
+	}
+}
+
 func main() {
 	product := Product{
 		Name: "Kayak", Category: "Watersports", Price: 279,
@@ -724,5 +956,110 @@ func main() {
 
 	// Using Reflection, Part 3
 	Printfln("\n\nUsing Reflection, Part 3\n")
+	/*
+	   Table 29-1. Chapter Summary
+	   Problem Solution Listing
+	   Inspect and invoke reflected functions | Use the Type and Value methods for functions5–7
+	   Create new functions | Use the FuncOf and MakeFunc functions8, 9
+	   Inspect and invoke reflected methods | Use the Type and Value methods for methods10–12
+	   Inspect reflected interfaces | Use the Type and Value methods for interfaces13–15
+	   Inspect and use reflected channels | Use the Type and Value methods for channels16–19
+	*/
 
+	Printfln("\n Working with Function Types")
+	inspectFuncType(Find)
+
+	Printfln("\n Working with Function Values%s%s",
+		"\n    …Invoking a function…",
+		"\n  Creating and Invoking New Function Types and Values")
+	names = []string{"Alice", "Bob", "Charlie"}
+	invokeFunction(Find, names, "London", "Bob")
+
+	results := mapSlice(names, strings.ToUpper)
+	Printfln("Results of invoking %v on a slice: %v",
+		funcName(reflect.ValueOf(strings.ToUpper)),
+		results)
+	lowerStringMapper := makeMapperFunc(strings.ToLower).(func([]string) []string)
+	var _results = lowerStringMapper(names)
+	Printfln("Lowercase Results: %v", _results)
+
+	incrementFloatMapper := makeMapperFunc(func(val float64) float64 {
+		return val + 1
+	}).(func([]float64) []float64)
+	prices := []float64{279, 48.95, 19.50}
+	floatResults := incrementFloatMapper(prices)
+	Printfln("Increment Results: %v", floatResults)
+
+	floatToStringMapper := makeMapperFunc(func(val float64) string {
+		return fmt.Sprintf("$%.2f", val)
+	}).(func([]float64) []string)
+	Printfln("Price Results: %v", floatToStringMapper(prices))
+
+	Printfln("\n Working with Methods%s", "\n  …Inspecting methods…")
+
+	inspectMethods(Purchase{})
+	inspectMethods(&Purchase{})
+
+	Printfln("\n  Invoking Methods")
+
+	executeFirstVoidMethod(&Product{Name: "Kayak", Price: 279})
+
+	Printfln("\n Working with Interfaces")
+	/*
+	   The Type struct defines methods that can be used to inspect interface types,
+	   described in Table 29-8. Most of these methods can also be applied to structs,
+	   as demonstrated in the previous section, but the behavior is slightly
+	   different.
+	*/
+	/*
+		To specify the interface you want to check, convert nil to a pointer of the
+		interface, like below.  This must be done with a pointer, which is then
+		followed in the checkImplementation function using the Elem method, to get a
+		Type that reflects the interface, which is CurrencyItem in this example:
+	*/
+	currencyItemType := (*CurrencyItem)(nil)
+	checkImplementation(currencyItemType, Product{}, &Product{}, &Purchase{})
+
+	Printfln("\n  Getting Underlying Values from Interfaces%s",
+		"\n  Examining Interface Methods",
+	)
+	getUnderlying(Wrapper{NamedItem: &Product{}}, "NamedItem")
+
+	Printfln("\n Working with Channel Types")
+
+	var c_ chan<- string
+	inspectChannel(c_)
+
+	Printfln("\n Working with Channel Values")
+
+	values := []string{"Alice", "Bob", "Charlie", "Dora"}
+	channel := make(chan string)
+	go sendOverChannel(channel, values)
+	for {
+		if val, open := <-channel; open {
+			Printfln("Received value: %v", val)
+		} else {
+			break
+		}
+	}
+
+	Printfln("\n Creating New Channel Types and Values")
+	valuesForSending := []string{"Alice", "Bob", "Charlie", "Dora"}
+	channelForValues := createChannelAndSend(valuesForSending).(chan string)
+
+	for {
+		if val, open := <-channelForValues; open {
+			Printfln("Received value: %v", val)
+		} else {
+			break
+		}
+	}
+
+	Printfln("\n Selecting from Multiple Channels")
+
+	cities := []string{"London", "Rome", "Paris"}
+	cityChannel := createChannelAndSend(cities).(chan string)
+	prices = []float64{279, 48.95, 19.50}
+	priceChannel := createChannelAndSend(prices).(chan float64)
+	readChannels(channel, cityChannel, priceChannel)
 }
