@@ -3,9 +3,15 @@ package logging
 import (
 	"log"
 	"os"
+	"platform/config"
+	"strings"
 )
 
-func NewDefaultLogger(level LogLevel) Logger {
+func NewDefaultLogger(cfg config.Configuration) Logger {
+	var level LogLevel = Debug
+	if configLevel, found := cfg.GetString("logging:level"); found {
+		level = LogLevelFromString(configLevel)
+	}
 	flags := log.Lmsgprefix | log.Ltime
 	return &DefaultLogger{
 		minLevel: level,
@@ -18,4 +24,23 @@ func NewDefaultLogger(level LogLevel) Logger {
 		},
 		triggerPanic: true,
 	}
+}
+
+func LogLevelFromString(val string) (level LogLevel) {
+	switch strings.ToLower(val) {
+	case "debug":
+		level = Debug
+	case "info":
+		level = Info
+	case "warn":
+		level = Warn
+	case "fatal":
+		level = Fatal
+	case "none":
+		// 868 Chapter 32 ■ Creating a Web Platform
+		level = None
+	default:
+		level = Debug
+	}
+	return
 }
