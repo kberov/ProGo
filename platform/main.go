@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"platform/config"
 	"platform/logging"
 	"platform/services"
@@ -17,17 +18,38 @@ func main() {
 		know which struct type will be used, the process by which it is created, or the
 		service lifecycles.
 	*/
-	var cfg config.Configuration
+	/*
+		var cfg config.Configuration
 
-	if err := services.GetService(&cfg); err != nil {
-		panic(err)
-	}
-	var logger logging.Logger
+		if err := services.GetService(&cfg); err != nil {
+			panic(err)
+		}
+		var logger logging.Logger
 
-	if err := services.GetService(&logger); err != nil {
-		panic(err)
+		if err := services.GetService(&logger); err != nil {
+			panic(err)
+		}
+	*/
+	// _ is a slice of results
+	if _, err := services.Call(writeMessage); err != nil {
+		println(err)
+		os.Exit(1)
 	}
-	writeMessage(logger, cfg)
+
+	/*
+		The main function defines an anonymous struct and resolves the services it
+		requires by passing a pointer to the Populate function. The result is that the
+		embedded Logger fields is populated using a service.  The Populate function
+		skips the message field, but a value is defined when the struct is initialized.
+	*/
+	val := struct {
+		message string
+		logging.Logger
+	}{
+		message: "Hello from the struct",
+	}
+	_ = services.Populate(&val)
+	val.Logger.Debug(val.message)
 }
 
 func writeMessage(logger logging.Logger, cfg config.Configuration) {
