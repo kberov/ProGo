@@ -1,20 +1,32 @@
 package main
 
 import (
-	"os"
 	"platform/config"
 	"platform/logging"
+	"platform/services"
 )
 
 func main() {
+	// Registering and Using Services
+	services.RegisterDefaultServices()
+
+	/*
+		Resolving a service is done by passing a pointer to a variable whose type is an
+		interface. In Listing 32-21, the GetService function is used to obtain
+		implementations of the Repository and Logger interfaces, without needing to
+		know which struct type will be used, the process by which it is created, or the
+		service lifecycles.
+	*/
 	var cfg config.Configuration
-	var err error
-	cfg, err = config.Load("config.json")
-	if err != nil {
-		println(err)
-		os.Exit(1)
+
+	if err := services.GetService(&cfg); err != nil {
+		panic(err)
 	}
-	var logger logging.Logger = logging.NewDefaultLogger(cfg)
+	var logger logging.Logger
+
+	if err := services.GetService(&logger); err != nil {
+		panic(err)
+	}
 	writeMessage(logger, cfg)
 }
 
